@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Receipt AI</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; background: #f4f4f4; }
+        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        h2 { text-align: center; color: #333; }
+        
+        /* Camera Button */
+        .btn { 
+            background: #007bff; color: white; width: 100%; padding: 15px; 
+            border: none; border-radius: 10px; font-size: 18px; cursor: pointer; 
+            position: relative; overflow: hidden;
+        }
+        .btn input[type=file] { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; 
+        }
+        
+        /* Chat */
+        .chat-box { height: 300px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; margin-bottom: 10px; background: #fff; border-radius: 8px;}
+        .msg { padding: 8px 12px; margin: 5px 0; border-radius: 15px; width: fit-content; max-width: 80%; }
+        .user { background: #007bff; color: white; margin-left: auto; }
+        .bot { background: #e9ecef; color: black; }
+        .input-group { display: flex; gap: 5px; }
+        input[type=text] { flex: 1; padding: 10px; border-radius: 5px; border: 1px solid #ddd; }
+        button.send { padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <h2>🧾 Receipt AI</h2>
+    
+    <div class="card">
+        <button class="btn" id="upBtn">
+            📸 Snap Receipt
+            <input type="file" accept="image/*" capture="environment" onchange="upload(this)">
+        </button>
+    </div>
+
+    <div class="card">
+        <div class="chat-box" id="box"><div class="msg bot">Hi! Snap a receipt or ask me a question.</div></div>
+        <div class="input-group">
+            <input type="text" id="q" placeholder="How much did I spend?">
+            <button class="send" onclick="ask()">Send</button>
+        </div>
+    </div>
+
+    <script>
+        // REPLACE THESE WITH YOUR ACTUAL LAMBDA FUNCTION URLS
+        const UPLOAD_URL = "https://YOUR_UPLOAD_API_URL_HERE.lambda-url.ap-southeast-2.on.aws/";
+        const CHAT_URL = "https://YOUR_CHAT_API_URL_HERE.lambda-url.ap-southeast-2.on.aws/";
+
+        async function upload(el) {
+            const file = el.files[0];
+            if(!file) return;
+            
+            const btn = document.getElementById('upBtn');
+            btn.innerText = "⏳ Uploading...";
+            
+            try {
+                // 1. Get Secure Upload Link
+                const r1 = await fetch(UPLOAD_URL);
+                const d1 = await r1.json();
+                
+                // 2. Upload to S3
+                await fetch(d1.upload_url, { method: 'PUT', body: file, headers: {'Content-Type': 'image/jpeg'} });
+                
+                btn.innerText = "✅ Done! Processing...";
+                addMsg('bot', "Receipt uploaded! I'm reading it now... (give me 10s)");
+                setTimeout(() => btn.innerText = "📸 Snap Receipt", 3000);
+            } catch(e) {
+                alert("Error: " + e);
+                btn.innerText = "❌ Failed";
+            }
+        }
+
+        async function ask() {
+            const inp = document.getElementById('q');
+            const q = inp.value;
+            if(!q) return;
+            
+            addMsg('user', q);
+            inp.value = '';
+            
+            try {
+                const res = await fetch(CHAT_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({question: q})
+                });
+                const data = await res.json();
+                addMsg('bot', data.answer);
+            } catch(e) {
+                addMsg('bot', "Error connecting to AI.");
+            }
+        }
+
+        function addMsg(cls, txt) {
+            const box = document.getElementById('box');
+            box.innerHTML += `<div class="msg ${cls}">${txt}</div>`;
+            box.scrollTop = box.scrollHeight;
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,151 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Receipt AI Project - Final Fixed Version
+
+Resources:
+  # 1. DynamoDB Table
+  ExpenseTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: UserId
+          AttributeType: S
+        - AttributeName: Timestamp
+          AttributeType: S
+      BillingMode: PAY_PER_REQUEST
+      KeySchema:
+        - AttributeName: UserId
+          KeyType: HASH
+        - AttributeName: Timestamp
+          KeyType: RANGE
+
+  # 2. S3 Bucket (Receipts)
+  ReceiptBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub receipt-app-${AWS::AccountId}-${AWS::Region}
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - '*'
+            AllowedMethods:
+              - PUT
+              - GET
+              - HEAD
+              - POST
+            AllowedOrigins:
+              - '*'
+            ExposeHeaders:
+              - ETag
+
+  # 3. S3 Bucket (Frontend Website)
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub receipt-frontend-${AWS::AccountId}-${AWS::Region}
+      WebsiteConfiguration:
+        IndexDocument: index.html
+
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: '*'
+            Action: s3:GetObject
+            Resource: !Sub ${FrontendBucket.Arn}/*
+
+  # 4. Lambda: Get Upload Link (Manual CORS)
+  GetUploadLink:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/
+      Handler: get_upload_link.lambda_handler
+      Runtime: python3.12
+      MemorySize: 128
+      Timeout: 10
+      FunctionUrlConfig:
+        AuthType: NONE
+        # CORS is handled MANUALLY in python code to avoid conflicts
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref ReceiptBucket
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref ReceiptBucket
+
+  # 5. Lambda: Process Receipt (Textract)
+  ProcessReceipt:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/
+      Handler: process_receipt.lambda_handler
+      Runtime: python3.12
+      MemorySize: 128
+      Timeout: 60
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref ExpenseTable
+      Events:
+        ReceiptBucket:
+          Type: S3
+          Properties:
+            Bucket: !Ref ReceiptBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: receipts/
+                  - Name: suffix
+                    Value: .jpg
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ExpenseTable
+        - S3ReadPolicy:
+            BucketName: !Ref ReceiptBucket
+        - Statement:
+            - Effect: Allow
+              Action: textract:AnalyzeExpense
+              Resource: '*'
+
+  # 6. Lambda: Chat Agent (Bedrock)
+  ChatAgent:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/
+      Handler: chat_agent.lambda_handler
+      Runtime: python3.12
+      MemorySize: 128
+      Timeout: 30
+      FunctionUrlConfig:
+        AuthType: NONE
+        Cors:
+          AllowOrigins:
+            - '*'
+          AllowMethods:
+            - POST
+          AllowHeaders:
+            - '*'
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref ExpenseTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ExpenseTable
+        - Statement:
+            - Effect: Allow
+              Action: bedrock:InvokeModel
+              Resource: '*'
+
+Outputs:
+  UploadApiUrl:
+    Value: !GetAtt GetUploadLinkUrl.FunctionUrl
+  ChatApiUrl:
+    Value: !GetAtt ChatAgentUrl.FunctionUrl
+  WebsiteUrl:
+    Value: !GetAtt FrontendBucket.WebsiteURL
