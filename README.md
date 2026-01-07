@@ -18,6 +18,7 @@ This project integrates several advanced AWS services and engineering patterns:
 * **Custom Security Logic:** Implements manual **CORS** handling and browser pre-flight checks to secure Lambda Function URLs.
 
 Demo Screen
+
 ![App Screenshot](images/chat.png)
 
 
@@ -69,4 +70,5 @@ receipt-ai-project/
 ### 5. Test
 1. Go to the **WebsiteUrl** (from CloudFormation outputs).
 2. **On Mobile:** Ensure you type `http://` explicitly if typing the URL manually.
+
 3. Snap a photo of a receipt!
